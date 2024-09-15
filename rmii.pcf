@@ -58,14 +58,24 @@ set_io -nowarn SD 107
 #    | 87    78 | <
 #     ----------
 #
-set_io -nowarn PMOD1        78
-set_io -nowarn PMOD2        79
-set_io -nowarn PMOD3    80
-set_io -nowarn PMOD6        81
-set_io -nowarn PMOD7        87
-set_io -nowarn PMOD8        88
-set_io -nowarn clk_50MHz    90
-set_io -nowarn PMOD10       91
+#     ---------------------------
+#    | 3V3 -        |  3V3 -     |
+#    | GND -        |  GND -     |
+#    | 91  - MDIO   |  81  - MDC |
+#    | 90  - CLK    |  80  - CRS |
+#    | 88  - RX0    |  79  - RX1 |
+#    | 87  - TX_EN  |  78  - TX0 | <
+#     ---------------------------
+#
+set_io -nowarn TX0       78
+set_io -nowarn TX1       61
+set_io -nowarn RX0       88
+set_io -nowarn RX1       79
+set_io -nowarn CRS       80
+set_io -nowarn MDC       81
+set_io -nowarn TX_EN     87
+set_io -nowarn clk_50MHz 90
+set_io -nowarn MDIO      91
 
 # ------------------------ EXPANSION I/O ------------------------------------
 #
@@ -121,7 +131,7 @@ set_io -nowarn BR9 45
 set_io -nowarn BR10 44
 
 # -------------------------- SYSTEM CLOCK ------------------------------------
-set_io -nowarn clk 21
+# set_io -nowarn clk 21
 
 # -------------------------- FTDI --------------------------------------------
 # --- FTDI 0:
