@@ -2,6 +2,7 @@
 
 module rmii (
     input  wire   clk_50MHz,
+    input  wire   reset_n,
     input  wire   CRS,
     input  wire   RX0,
     input  wire   RX1,
@@ -13,160 +14,150 @@ module rmii (
     output reg    D5
 );
 
-    /* ------------------ data link layer stuff (Ethernet frame) ---------------------------------- */
-    localparam  ETH_PREAMBLE        = 56'h55555555555555;   /* 7 bytes of 55                        */
-    localparam  ETH_SFD             = 8'hD5;                /* 1 byte start frame delimiter         */
-    localparam  ETH_DESTINATION_MAC = 48'hFFFFFFFFFFFF;     /* 6 bytes - broadcast MAC address      */
-    localparam  ETH_SOURCE_MAC      = 48'hDEADBEEFBABE;     /* 6 bytes - made up source MAC address */
-    localparam  ETH_ETHERTYPE       = 16'h0800;             /* for IPv4                             */
-    localparam  ETH_FRC             = 32'hABCDEF22;         /* a random frame check sequence        */
-    localparam  ETH_START_CLKS      = 88;                   /* (56+8+48+48+16) / 2                  */
-    localparam  ETH_STOP_CLKS       = 16;                   /* 32 / 2                               */
-    reg [175:0] eth_start_buf;
-    reg [31:0]  eth_stop_buf;
-    /* -------------------------------------------------------------------------------------------- */
+    /* ------------------ Data Link Layer (Ethernet Frame) ------------------------------ */
+    localparam  ETH_PREAMBLE        = 56'h55555555555555;   /* 7 bytes of 0x55 */
+    localparam  ETH_SFD             = 8'hD5;                /* Start Frame Delimiter */
+    localparam  ETH_DESTINATION_MAC = 48'hFFFFFFFFFFFF;     /* Broadcast MAC address */
+    localparam  ETH_SOURCE_MAC      = 48'hDEADBEEFBABE;     /* Source MAC address */
+    localparam  ETH_ETHERTYPE       = 16'h0800;             /* Ethertype for IPv4 */
+    localparam  ETH_FCS             = 32'hABCDEF22;         /* Frame Check Sequence (placeholder) */
 
-    /* ------------------ network layer stuff (IPv4 frame) ---------------------------------------- */
-    localparam  IP_VERSION          = 4'd4;                 /* IPv4                                 */
-    localparam  IP_IHL              = 4'd5;                 /* IHL(5) == 20 bytes length            */
-    localparam  IP_TOS              = 16'd0;                /* type of service 0 -> normal          */
-    localparam  IP_TOTAL_LENGTH     = 8'h28;                /* 20 byte header 20 bytes data         */
-    localparam  IP_ID               = 16'd0;                /* fragmentation not considered         */
-    localparam  IP_FRAG_OFFSET      = 16'h4000;             /* Don't Fragment (DF)                  */
-    localparam  IP_TTL              = 8'h40;                /* 64, common time to live              */
-    localparam  IP_PROTOCOL         = 8'h11;                /* UDP                                  */
-    localparam  IP_SOURCE_IP        = 32'hc0a80164;         /* 192.168.1.100                        */
-    localparam  IP_DESTINATION_IP   = 32'hc0a801FF;         /* broadcast 192.168.1.255              */
-    localparam  IP_CHECKSUM         = 16'hb610;             /* calculated using script in this dir  */
-    localparam  IP_CLKS             = 72;                   /* (4+4+16+8+16+16+8+8+32+32) / 2       */ 
-    reg [143:0] ip_buf;
-    /* -------------------------------------------------------------------------------------------- */
+    /* Ethernet frame concatenation */
+    localparam [175:0] ETH_HEADER = {
+        ETH_PREAMBLE,           // 56 bits
+        ETH_SFD,                // 8 bits
+        ETH_DESTINATION_MAC,    // 48 bits
+        ETH_SOURCE_MAC,         // 48 bits
+        ETH_ETHERTYPE           // 16 bits
+    };
 
-    /* ------------------ transport layer stuff (UDP frame) --------------------------------------- */
-    localparam  UDP_SOURCE_PORT     = 16'd1234;             /* example port                         */
-    localparam  UDP_DEST_PORT       = 16'd1234;             /* example port                         */
-    localparam  UDP_LENGTH          = 8'd8 + 8'h2;          /* 8 header bytes + 4 payload bytes     */
-    localparam  UDP_CHECKSUM        = 16'd0;                /* optional checksum                    */
-    localparam  UDP_PAYLOAD         = 16'hDEAD;             /* example payload                      */
-    localparam  UDP_CLKS            = 21;                   /* (16+16+8+16+16) / 2                  */
-    reg [71:0]  udp_buf;
-    /* -------------------------------------------------------------------------------------------- */
+    /* ------------------ Network Layer (IPv4 Frame) ------------------------------------ */
+    localparam  IP_VERSION          = 4'd4;                 /* IPv4 */
+    localparam  IP_IHL              = 4'd5;                 /* Header length (5 words) */
+    localparam  IP_TOS              = 8'd0;                 /* Type of Service */
+    localparam  IP_TOTAL_LENGTH     = 16'd28;               /* Total length (20 bytes header + 8 bytes data) */
+    localparam  IP_ID               = 16'd0;                /* Identification */
+    localparam  IP_FLAGS            = 3'b010;               /* Don't Fragment flag */
+    localparam  IP_FRAG_OFFSET      = 13'd0;                /* Fragment Offset */
+    localparam  IP_TTL              = 8'd64;                /* Time to Live */
+    localparam  IP_PROTOCOL         = 8'd17;                /* Protocol (UDP) */
+    localparam  IP_CHECKSUM         = 16'hb610;             /* Header Checksum */
+    localparam  IP_SOURCE_IP        = 32'hC0A80164;         /* 192.168.1.100 */
+    localparam  IP_DESTINATION_IP   = 32'hC0A801FF;         /* 192.168.1.255 */
+
+    /* IP header concatenation */
+    localparam [159:0] IP_HEADER = {
+        // Version and IHL
+        IP_VERSION, IP_IHL,
+        // Type of Service
+        IP_TOS,
+        // Total Length
+        IP_TOTAL_LENGTH,
+        // Identification
+        IP_ID,
+        // Flags and Fragment Offset
+        IP_FLAGS, IP_FRAG_OFFSET,
+        // Time to Live
+        IP_TTL,
+        // Protocol
+        IP_PROTOCOL,
+        // Header Checksum
+        IP_CHECKSUM,
+        // Source IP Address
+        IP_SOURCE_IP,
+        // Destination IP Address
+        IP_DESTINATION_IP
+    };
+
+    /* ------------------ Transport Layer (UDP Frame) ----------------------------------- */
+    localparam  UDP_SOURCE_PORT     = 16'd1234;             /* Source Port */
+    localparam  UDP_DEST_PORT       = 16'd1234;             /* Destination Port */
+    localparam  UDP_LENGTH          = 16'd10;               /* Length (8 bytes header + 2 bytes payload) */
+    localparam  UDP_CHECKSUM        = 16'd0;                /* Checksum (optional) */
+    // localparam  UDP_PAYLOAD         = 192'hDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF;             /* Payload data */
+    localparam  UDP_PAYLOAD            = 192'hEFBEADDEEFBEADDEEFBEADDEEFBEADDEEFBEADDEEFBEADDE;
+
+    /* UDP packet concatenation */
+    localparam [255:0] UDP_PACKET = {
+        // Source Port
+        UDP_SOURCE_PORT,
+        // Destination Port
+        UDP_DEST_PORT,
+        // Length
+        UDP_LENGTH,
+        // Checksum
+        UDP_CHECKSUM,
+        // Payload
+        UDP_PAYLOAD
+    };
+
+    /* ------- Combined Frame Data ------- */
+    localparam TOTAL_FRAME_SIZE = 176 + 160 + 256 + 32; // ETH_HEADER + IP_HEADER + UDP_PACKET + ETH_FCS
+    localparam [TOTAL_FRAME_SIZE-1:0] FRAME_DATA = {
+        ETH_HEADER,     // 176 bits
+        IP_HEADER,      // 160 bits
+        UDP_PACKET,     // 255 bits
+        ETH_FCS         // 32 bits
+    };
 
     /* ------- FSM ---------- */
     reg [1:0]   state;
     reg [1:0]   next_state;
-    localparam  S_ETH_START   = 0;
-    localparam  S_IP          = 1;
-    localparam  S_UDP         = 2;
-    localparam  S_ETH_STOP    = 3;
+    localparam  S_IDLE        = 2'd0;
+    localparam  S_TRANSMIT    = 2'd1;
+
+    initial begin
+        state <= S_IDLE;
+    end
 
     reg [1:0]   tx;
     reg [25:0]  interframe_counter;
-    reg [10:0]  state_counter;
-    reg [7:0]   tx_counter;
+    reg [$clog2(TOTAL_FRAME_SIZE):0] bit_counter;
 
     assign TX0 = tx[0];
     assign TX1 = tx[1];
 
-    initial begin
-        eth_start_buf       = {ETH_ETHERTYPE, 
-                               ETH_SOURCE_MAC, 
-                               ETH_DESTINATION_MAC, 
-                               ETH_SFD, 
-                               ETH_PREAMBLE};
-        eth_stop_buf        <= {ETH_FRC};
-        ip_buf              <= {IP_DESTINATION_IP,         
-                               IP_SOURCE_IP,             
-                               IP_CHECKSUM,             
-                               IP_PROTOCOL,    
-                               IP_TTL,              
-                               IP_FRAG_OFFSET,     
-                               IP_ID,             
-                               IP_TOTAL_LENGTH, 
-                               IP_TOS,     
-                               IP_IHL,       
-                               IP_VERSION};
-        udp_buf             <= {UDP_PAYLOAD,
-                               UDP_CHECKSUM,  
-                               UDP_LENGTH,     
-                               UDP_DEST_PORT,   
-                               UDP_SOURCE_PORT};
-
-        MDC                 <= 0;
-        TX_EN               <= 0;
-        interframe_counter  <= 0;
-        tx_counter          <= 0;
-        state_counter       <= 0;
-        state               <= S_ETH_START;
-        next_state          <= S_ETH_START;
-        D5                  <= 0;
-        tx[0]               <= 0;
-        tx[1]               <= 0;
-    end
-
+    /* Main logic */
     always @(posedge clk_50MHz) begin
-        state <= next_state;
-    end
-
-    always @(posedge clk_50MHz) begin
-        interframe_counter <= interframe_counter + 1;
-        if (interframe_counter >= 50_000_00) begin
-            TX_EN <= 1;
-            D5 <= ~D5;
+        if (reset_n) begin
+            /* Reset logic */
+            MDC                 <= 0;
+            TX_EN               <= 0;
+            interframe_counter  <= 0;
+            state               <= S_IDLE;
+            next_state          <= S_IDLE;
+            D5                  <= 0;
+            tx                  <= 2'b00;
+            bit_counter         <= 0;
+        end else begin
+            state <= next_state;
             case (state)
-                /* --- */
-                S_ETH_START: begin
-                    tx[1:0]        <= eth_start_buf[tx_counter +: 2];
-                    state_counter  <= state_counter + 1;
-                    if (state_counter == (ETH_START_CLKS - 1)) begin
-                        tx_counter <= 0;
-                        next_state <= S_IP;
-                    end else begin
-                        tx_counter <= tx_counter + 2;
-                    end
-                end
-
-                /* --- */
-                S_IP: begin
-                    tx[1:0]        <= ip_buf[tx_counter +: 2];
-                    state_counter  <= state_counter + 1;
-                    if (state_counter == (ETH_START_CLKS + IP_CLKS- 1)) begin
-                        next_state <= S_UDP;
-                        tx_counter <= 0;
-                    end else begin
-                        tx_counter <= tx_counter + 2;
-                    end
-                end
-
-                /* --- */
-                S_UDP: begin
-                    tx[1:0]        <= udp_buf[tx_counter +: 2];
-                    state_counter  <= state_counter + 1;
-                    if (state_counter == (ETH_START_CLKS + IP_CLKS + UDP_CLKS- 1)) begin
-                        next_state <= S_ETH_STOP;
-                        tx_counter <= 0;
-                    end else begin
-                        tx_counter <= tx_counter + 2;
-                    end
-                end
-
-                /* --- */
-                S_ETH_STOP: begin
-                    tx[1:0]        <= eth_stop_buf[tx_counter +: 2];
-                    state_counter  <= state_counter + 1;
-                    if (state_counter == (ETH_START_CLKS + IP_CLKS + UDP_CLKS + ETH_STOP_CLKS- 1)) begin
-                        tx_counter         <= 0;
-                        state_counter      <= 0;
+                S_IDLE: begin
+                        TX_EN <= 0;
+                    interframe_counter <= interframe_counter + 1;
+                    if (interframe_counter >= 10_000_000) begin // Adjusted for 2 times per second
+                        D5 <= ~D5;
                         interframe_counter <= 0;
-                        next_state         <= S_ETH_START;
+                        bit_counter <= TOTAL_FRAME_SIZE - 1;
+                        next_state <= S_TRANSMIT;
+                    end
+                    tx <= 2'b00;
+                end
+
+                S_TRANSMIT: begin
+                    TX_EN <= 1;
+                    if (bit_counter >= 2) begin
+                        tx[1] <= FRAME_DATA[bit_counter];
+                        tx[0] <= FRAME_DATA[bit_counter - 1];
+                        bit_counter <= bit_counter - 2;
                     end else begin
-                        tx_counter <= tx_counter + 2;
+                        // Last bit(s)
+                        tx[1] <= FRAME_DATA[1];
+                        tx[0] <= FRAME_DATA[0];
+                        next_state <= S_IDLE;
                     end
                 end
             endcase
-        end else begin
-            tx[1:0] <= 2'b00;
-            TX_EN   <= 0;
         end
     end
 endmodule

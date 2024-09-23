@@ -111,7 +111,7 @@ set_io -nowarn MDIO      91
 #         -------------------------------------------------
 #
 # -- Top Row
-set_io -nowarn TR3 112
+set_io -nowarn reset_n 112
 set_io -nowarn TR4 113
 set_io -nowarn TR5 114
 set_io -nowarn TR6 115
