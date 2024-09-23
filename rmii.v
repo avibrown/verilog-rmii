@@ -18,7 +18,7 @@ module rmii (
     localparam  ETH_PREAMBLE        = 56'h55555555555555;   /* 7 bytes of 0x55 */
     localparam  ETH_SFD             = 8'hD5;                /* Start Frame Delimiter */
     localparam  ETH_DESTINATION_MAC = 48'hFFFFFFFFFFFF;     /* Broadcast MAC address */
-    localparam  ETH_SOURCE_MAC      = 48'hDEADBEEFBABE;     /* Source MAC address */
+    localparam  ETH_SOURCE_MAC      = 48'h010203040506;     /* Source MAC address */
     localparam  ETH_ETHERTYPE       = 16'h0800;             /* Ethertype for IPv4 */
     localparam  ETH_FCS             = 32'hABCDEF22;         /* Frame Check Sequence (placeholder) */
 
@@ -138,7 +138,7 @@ module rmii (
                     if (interframe_counter >= 10_000_000) begin // Adjusted for 2 times per second
                         D5 <= ~D5;
                         interframe_counter <= 0;
-                        bit_counter <= TOTAL_FRAME_SIZE - 1;
+                        bit_counter <= TOTAL_FRAME_SIZE - 2;
                         next_state <= S_TRANSMIT;
                     end
                     tx <= 2'b00;
@@ -147,13 +147,13 @@ module rmii (
                 S_TRANSMIT: begin
                     TX_EN <= 1;
                     if (bit_counter >= 2) begin
-                        tx[1] <= FRAME_DATA[bit_counter];
-                        tx[0] <= FRAME_DATA[bit_counter - 1];
+                        tx[0] <= FRAME_DATA[bit_counter];
+                        tx[1] <= FRAME_DATA[bit_counter + 1];
                         bit_counter <= bit_counter - 2;
                     end else begin
                         // Last bit(s)
-                        tx[1] <= FRAME_DATA[1];
-                        tx[0] <= FRAME_DATA[0];
+                        tx[0] <= FRAME_DATA[1];
+                        tx[1] <= FRAME_DATA[0];
                         next_state <= S_IDLE;
                     end
                 end
